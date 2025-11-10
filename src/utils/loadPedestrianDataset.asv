@@ -1,0 +1,56 @@
+function [X, y, fileNames] = loadPedestrianDataset(posDir, negDir, featureType, targetSize, varargin)
+
+if nargin < 3 || isempty(featureType), featureType = 'raw'; end
+if nargin < 4 || isempty(targetSize),  targetSize  = [128 64]; end
+
+% defaults for HOG
+cellSize  = [8 8];
+blockSize = [2 2];
+numBins   = 9;
+
+% allow passing HOG parameters positionally
+if strcmpi(featureType,'hog') && ~isempty(varargin)
+    if numel(varargin) >= 1 && ~isempty(varargin{1}), cellSize  = varargin{1}; end
+    if numel(varargin) >= 2 && ~isempty(varargin{2}), blockSize = varargin{2}; end
+    if numel(varargin) >= 3 && ~isempty(varargin{3}), numBins   = varargin{3}; end
+end
+
+% collect files 
+posFiles = [dir(fullfile(posDir,'*.png')); dir(fullfile(posDir,'*.jpg')); dir(fullfile(posDir,'*.jpeg')); ...
+            dir(fullfile(posDir,'*.PNG')); dir(fullfile(posDir,'*.JPG')); dir(fullfile(posDir,'*.JPEG'))];
+negFiles = [dir(fullfile(negDir,'*.png')); dir(fullfile(negDir,'*.jpg')); dir(fullfile(negDir,'*.jpeg')); ...
+            dir(fullfile(negDir,'*.PNG')); dir(fullfile(negDir,'*.JPG')); dir(fullfile(negDir,'*.JPEG'))];
+
+Npos = numel(posFiles); Nneg = numel(negFiles);
+X = []; y = []; fileNames = cell(Npos+Nneg,1);
+
+% POS
+for i = 1:Npos
+    I = imread(fullfile(posDir, posFiles(i).name));
+    if size(I,3)==3, I = rgb2gray(I); end
+    I = imresize(I, targetSize, 'bilinear');
+
+    if strcmpi(featureType,'hog')
+        f = extractFeature(I, 'hog', cellSize, blockSize, numBins);
+    else
+        f = extractFeature(I, 'raw');
+    end
+
+    X = [X; f]; y = [y; 1]; fileNames{i} = posFiles(i).name; %#ok<AGROW>
+end
+
+% NEG
+for i = 1:Nneg
+    I = imread(fullfile(negDir, negFiles(i).name));
+    if size(I,3)==3, I = rgb2gray(I); end
+    I = imresize(I, targetSize, 'bilinear');
+
+    if strcmpi(featureType,'hog')
+        f = extractFeature(I, 'hog', cellSize, blockSize, numBins);
+    else
+        f = extractFeature(I, 'raw');
+    end
+
+    X = [X; f]; y = [y; 0]; fileNames{Npos+i} = negFiles(i).name; %#ok<AGROW>
+end
+end

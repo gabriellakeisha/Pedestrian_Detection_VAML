@@ -1,0 +1,103 @@
+%% l_eval_svm_linear.m — Linear SVM evaluation
+clearvars; close all; clc; rng(1234,'twister'); addpath(genpath('src'));
+
+% load data
+S = load('splits/splits.mat'); 
+testIdx = S.testIdx;
+R = load('features/raw/features_raw.mat');
+H = load('features/hog/features_hog.mat');
+
+% load models and normalization parameters
+MR = load('models/svm/modelSVM_linear_raw.mat');
+MH = load('models/svm/modelSVM_linear_hog.mat');
+
+modelSVM_raw = MR.modelSVM_linear_raw;
+bestRaw = MR.bestRaw;
+mu_raw_full = MR.mu_raw_full;
+sigma_raw_full = MR.sigma_raw_full;
+
+modelSVM_hog = MH.modelSVM_linear_hog;
+bestHog = MH.bestHog;
+mu_hog_full = MH.mu_hog_full;
+sigma_hog_full = MH.sigma_hog_full;
+
+Xte_raw = double(R.X_raw(testIdx,:)); 
+yte = double(R.y(testIdx));
+Xte_hog = double(H.X_hog(testIdx,:));
+
+% apply normalization to test data ===
+Xte_raw_norm = (Xte_raw - mu_raw_full) ./ sigma_raw_full;
+Xte_hog_norm = (Xte_hog - mu_hog_full) ./ sigma_hog_full;
+
+% predict on NORMALIZED test data
+tic; 
+[pred_raw, score_raw] = predict(modelSVM_raw, Xte_raw_norm); 
+t_raw = toc/numel(yte);
+
+tic; 
+[pred_hog, score_hog] = predict(modelSVM_hog, Xte_hog_norm); 
+t_hog = toc/numel(yte);
+
+% compute metrics
+acc_raw = mean(pred_raw==yte)*100;
+acc_hog = mean(pred_hog==yte)*100;
+
+% compute precision, recall, F1 for class 1 (pedestrian)
+tp_raw = sum((pred_raw==1) & (yte==1));
+fp_raw = sum((pred_raw==1) & (yte==0));
+fn_raw = sum((pred_raw==0) & (yte==1));
+prec_raw = tp_raw/(tp_raw+fp_raw+eps);
+rec_raw = tp_raw/(tp_raw+fn_raw+eps);
+f1_raw = 2*prec_raw*rec_raw/(prec_raw+rec_raw+eps);
+
+tp_hog = sum((pred_hog==1) & (yte==1));
+fp_hog = sum((pred_hog==1) & (yte==0));
+fn_hog = sum((pred_hog==0) & (yte==1));
+prec_hog = tp_hog/(tp_hog+fp_hog+eps);
+rec_hog = tp_hog/(tp_hog+fn_hog+eps);
+f1_hog = 2*prec_hog*rec_hog/(prec_hog+rec_hog+eps);
+
+fprintf('\n=== LINEAR SVM EVALUATION ===\n');
+fprintf('SVM-Linear-RAW: %.2f%% | P=%.3f R=%.3f F1=%.3f | C=%.3g | %.4fs/sample\n', ...
+    acc_raw, prec_raw, rec_raw, f1_raw, bestRaw.C, t_raw);
+fprintf('SVM-Linear-HOG: %.2f%% | P=%.3f R=%.3f F1=%.3f | C=%.3g | %.4fs/sample\n', ...
+    acc_hog, prec_hog, rec_hog, f1_hog, bestHog.C, t_hog);
+
+% confusion matrices
+try
+    figure('Position', [100 100 800 350]);
+    subplot(1,2,1);
+    confusionchart(categorical(yte), categorical(pred_raw));
+    title(sprintf('SVM-Linear-RAW (%.2f%%, C=%.3g)', acc_raw, bestRaw.C));
+    
+    subplot(1,2,2);
+    confusionchart(categorical(yte), categorical(pred_hog));
+    title(sprintf('SVM-Linear-HOG (%.2f%%, C=%.3g)', acc_hog, bestHog.C));
+catch
+    warning('Could not create confusion charts');
+end
+
+% score distributions (decision values)
+try
+    figure('Position', [100 500 800 350]);
+    
+    subplot(1,2,1);
+    histogram(score_raw(yte==1,2), 40, 'FaceAlpha', 0.6); 
+    hold on; 
+    histogram(score_raw(yte==0,2), 40, 'FaceAlpha', 0.6);
+    legend('Pedestrian (1)', 'Non-pedestrian (0)'); 
+    title('SVM-Linear(RAW) Score Separation'); 
+    xlabel('Decision Value'); ylabel('Count');
+    grid on;
+    
+    subplot(1,2,2);
+    histogram(score_hog(yte==1,2), 40, 'FaceAlpha', 0.6); 
+    hold on; 
+    histogram(score_hog(yte==0,2), 40, 'FaceAlpha', 0.6);
+    legend('Pedestrian (1)', 'Non-pedestrian (0)'); 
+    title('SVM-Linear(HOG) Score Separation'); 
+    xlabel('Decision Value'); ylabel('Count');
+    grid on;
+catch
+    warning('Could not create score distribution plots');
+end
