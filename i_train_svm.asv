@@ -1,0 +1,67 @@
+% i_train_svm.m — SVM RBF: grid search C & KernelScale on validation
+clearvars; close all; clc; rng(1234,'twister'); addpath(genpath('src'));
+
+if ~exist('models/svm','dir'), mkdir('models/svm'); end
+
+S = load('splits/splits.mat'); trainIdx = S.trainIdx;
+R = load('features/raw/features_raw.mat');
+H = load('features/hog/features_hog.mat');
+
+Xtr_raw = double(R.X_raw(trainIdx,:)); ytr = double(R.y(trainIdx));
+Xtr_hog = double(H.X_hog(trainIdx,:)); % labels align
+
+% internal split val;idation 80/20
+Ntr = numel(ytr); p = randperm(Ntr);
+Nval = round(0.2*Ntr); valSel = p(1:Nval); subSel = p(Nval+1:end);
+
+Xsub_raw = Xtr_raw(subSel,:); ysub = ytr(subSel);
+Xval_raw = Xtr_raw(valSel,:); yval = ytr(valSel);
+
+Xsub_hog = Xtr_hog(subSel,:);   
+Xval_hog = Xtr_hog(valSel,:);
+
+Cset  = [0.1 1 3 10 30 100];
+Gset  = [0.1 0.3 1 3 10];    % KernelScale (sigma)
+bestRaw.acc = -inf; bestHog.acc = -inf;
+
+% ---------- RAW ----------
+for C = Cset
+    for ks = Gset
+        mdl = fitcsvm(Xsub_raw, ysub, ...
+            'KernelFunction','rbf','KernelScale',ks, ...
+            'BoxConstraint',C,'Standardize',true,'ClassNames',[0 1]);
+        pred = predict(mdl, Xval_raw);
+        acc  = mean(pred==yval)*100;
+        if acc > bestRaw.acc
+            bestRaw = struct('acc',acc,'C',C,'ks',ks);
+        end
+    end
+end
+
+% ---------- HOG ----------
+for C = Cset
+    for ks = Gset
+        mdl = fitcsvm(Xsub_hog, ysub, ...
+            'KernelFunction','rbf','KernelScale',ks, ...
+            'BoxConstraint',C,'Standardize',true,'ClassNames',[0 1]);
+        pred = predict(mdl, Xval_hog);
+        acc  = mean(pred==yval)*100;
+        if acc > bestHog.acc
+            bestHog = struct('acc',acc,'C',C,'ks',ks);
+        end
+    end
+end
+
+fprintf('Best SVM-RAW:  C=%.3g, ks=%.3g, val=%.2f%%\n', bestRaw.C, bestRaw.ks, bestRaw.acc);
+fprintf('Best SVM-HOG:  C=%.3g, ks=%.3g, val=%.2f%%\n', bestHog.C, bestHog.ks, bestHog.acc);
+
+% Final train on full training set
+modelSVM_raw = fitcsvm(Xtr_raw, ytr, 'KernelFunction','rbf', ...
+    'KernelScale',bestRaw.ks, 'BoxConstraint',bestRaw.C, ...
+    'Standardize',true,'ClassNames',[0 1]);
+modelSVM_hog = fitcsvm(Xtr_hog, ytr, 'KernelFunction','rbf', ...
+    'KernelScale',bestHog.ks, 'BoxConstraint',bestHog.C, ...
+    'Standardize',true,'ClassNames',[0 1]);
+
+save('models/svm/modelSVM_raw.mat','modelSVM_raw','bestRaw','-v7.3');
+save('models/svm/modelSVM_hog.mat','modelSVM_hog','bestHog','-v7.3');
