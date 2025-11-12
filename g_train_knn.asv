@@ -1,0 +1,68 @@
+% g_train_knn.m — train using knn model with some k values and find best k
+% values
+clearvars; close all; clc; rng(1234,'twister'); addpath(genpath('src'));
+
+if ~exist('models/knn','dir'), mkdir('models/knn'); end
+
+% load and split the data
+S = load('splits/splits.mat'); trainIdx = S.trainIdx;
+R = load('features/raw/features_raw.mat'); % X_raw, y
+H = load('features/hog/features_hog.mat'); % X_hog, y
+
+% build the train-only sets
+Xtr_raw = double(R.X_raw(trainIdx,:)); ytr = double(R.y(trainIdx));
+Xtr_hog = double(H.X_hog(trainIdx,:)); % labels align with ytr
+
+% internal validation split from the training indices (80/20)
+Ntr = numel(ytr); idx = randperm(Ntr);
+Nval = round(0.2*Ntr); valSel = idx(1:Nval); subSel = idx(Nval+1:end);
+
+Xsub_raw = Xtr_raw(subSel,:); ysub = ytr(subSel);
+Xval_raw = Xtr_raw(valSel,:); yval = ytr(valSel);
+
+Xsub_hog = Xtr_hog(subSel,:);              % same labels ysub
+Xval_hog = Xtr_hog(valSel,:);              % same labels yval
+
+% Search space
+Kset = [1 3 5 7 9 15 21];
+Dset = {'euclidean','cosine'};
+
+bestRaw.acc = -inf; bestHog.acc = -inf;
+
+% ---------- RAW grid ----------
+for d = 1:numel(Dset)
+    for k = 1:numel(Kset)
+        mdl = fitcknn(Xsub_raw, ysub, 'NumNeighbors',Kset(k), ...
+            'Distance',Dset{d}, 'Standardize',false);
+        pred = predict(mdl, Xval_raw);
+        acc  = mean(pred==yval)*100;
+        if acc > bestRaw.acc
+            bestRaw.acc = acc; bestRaw.K = Kset(k); bestRaw.dist = Dset{d};
+        end
+    end
+end
+
+% ---------- HOG grid ----------
+for d = 1:numel(Dset)
+    for k = 1:numel(Kset)
+        mdl = fitcknn(Xsub_hog, ysub, 'NumNeighbors',Kset(k), ...
+            'Distance',Dset{d}, 'Standardize',false);
+        pred = predict(mdl, Xval_hog);
+        acc  = mean(pred==yval)*100;
+        if acc > bestHog.acc
+            bestHog.acc = acc; bestHog.K = Kset(k); bestHog.dist = Dset{d};
+        end
+    end
+end
+
+fprintf('Best RAW:  K=%d, dist=%s, val=%.2f%%\n', bestRaw.K, bestRaw.dist, bestRaw.acc);
+fprintf('Best HOG:  K=%d, dist=%s, val=%.2f%%\n', bestHog.K, bestHog.dist, bestHog.acc);
+
+% Final models trained on the FULL training set (all trainIdx)
+modelKNN_raw = fitcknn(Xtr_raw, ytr, 'NumNeighbors',bestRaw.K, ...
+    'Distance',bestRaw.dist, 'Standardize',false);
+modelKNN_hog = fitcknn(Xtr_hog, ytr, 'NumNeighbors',bestHog.K, ...
+    'Distance',bestHog.dist, 'Standardize',false);
+
+save('models/knn/modelKNN_raw.mat','modelKNN_raw','bestRaw','-v7.3');
+save('models/knn/modelKNN_hog.mat','modelKNN_hog','bestHog','-v7.3');
